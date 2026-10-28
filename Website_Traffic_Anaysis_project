@@ -1,0 +1,313 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import networkx as nx
+
+# -----------------------------
+# 1. LOAD DATA
+# -----------------------------
+df = pd.read_csv("/kaggle/input/datasets/bhanupratapbiswas/website-traffic-analysis/traffic.csv")
+
+print("Dataset Shape:", df.shape)
+print("\nColumns:")
+print(df.columns)
+
+print("\nMissing Values:")
+print(df.isnull().sum())
+
+# -----------------------------
+# 2. DATA CLEANING
+# -----------------------------
+df.drop_duplicates(inplace=True)
+
+# Convert date columns
+time_cols=[]
+
+for col in df.columns:
+    if "time" in col.lower() or "date" in col.lower():
+        try:
+            df[col]=pd.to_datetime(df[col])
+            time_cols.append(col)
+        except:
+            pass
+
+# Fill missing values
+df.fillna(method="ffill", inplace=True)
+
+print("\nCleaned Dataset:")
+print(df.head())
+
+# -----------------------------
+# 3. IDENTIFY IMPORTANT COLUMNS
+# -----------------------------
+session_col=None
+user_col=None
+page_col=None
+source_col=None
+duration_col=None
+
+for col in df.columns:
+
+    name=col.lower()
+
+    if "session" in name:
+        session_col=col
+
+    elif "user" in name:
+        user_col=col
+
+    elif "page" in name:
+        page_col=col
+
+    elif "source" in name or "referral" in name:
+        source_col=col
+
+    elif "duration" in name:
+        duration_col=col
+
+print("\nDetected Columns")
+print("Session:",session_col)
+print("User:",user_col)
+print("Page:",page_col)
+print("Referral:",source_col)
+print("Duration:",duration_col)
+
+# -----------------------------
+# 4. KPI METRICS
+# -----------------------------
+
+sessions=df[session_col].nunique() if session_col else len(df)
+
+users=df[user_col].nunique() if user_col else "N/A"
+
+if duration_col:
+    avg_duration=df[duration_col].mean()
+else:
+    avg_duration=0
+
+# Bounce Rate
+if session_col and page_col:
+
+    page_counts=df.groupby(session_col)[page_col].count()
+
+    bounce_sessions=(page_counts==1).sum()
+
+    bounce_rate=(bounce_sessions/len(page_counts))*100
+
+else:
+    bounce_rate=0
+
+print("\n========== KPI ==========")
+print("Total Sessions:",sessions)
+print("Unique Users:",users)
+print("Bounce Rate:",round(bounce_rate,2),"%")
+print("Average Session Duration:",round(avg_duration,2))
+
+# -----------------------------
+# 5. TOP LANDING PAGES
+# -----------------------------
+
+if session_col and page_col:
+
+    landing=(
+        df.groupby(session_col)
+        .first()[page_col]
+        .value_counts()
+        .head(10)
+    )
+
+    plt.figure(figsize=(10,6))
+    landing.plot(kind="bar")
+
+    plt.title("Top Landing Pages")
+    plt.xticks(rotation=45)
+
+    plt.show()
+
+# -----------------------------
+# 6. TOP EXIT PAGES
+# -----------------------------
+
+if session_col and page_col:
+
+    exit_pages=(
+        df.groupby(session_col)
+        .last()[page_col]
+        .value_counts()
+        .head(10)
+    )
+
+    plt.figure(figsize=(10,6))
+
+    exit_pages.plot(kind="bar")
+
+    plt.title("Top Exit Pages")
+
+    plt.xticks(rotation=45)
+
+    plt.show()
+
+# -----------------------------
+# 7. REFERRAL SOURCE ANALYSIS
+# -----------------------------
+
+if source_col:
+
+    plt.figure(figsize=(10,6))
+
+    df[source_col].value_counts().head(10).plot(
+        kind="pie",
+        autopct="%1.1f%%"
+    )
+
+    plt.title("Traffic Sources")
+
+    plt.ylabel("")
+
+    plt.show()
+
+# -----------------------------
+# 8. USER FLOW VISUALIZATION
+# -----------------------------
+
+if session_col and page_col:
+
+    flows=[]
+
+    for sid,grp in df.groupby(session_col):
+
+        pages=list(grp[page_col])
+
+        for i in range(len(pages)-1):
+
+            flows.append((pages[i],pages[i+1]))
+
+    flow_df=pd.DataFrame(
+        flows,
+        columns=["From","To"]
+    )
+
+    top_flow=(
+        flow_df
+        .value_counts()
+        .reset_index(name="count")
+        .head(20)
+    )
+
+    G=nx.DiGraph()
+
+    for _,r in top_flow.iterrows():
+
+        G.add_edge(
+            r["From"],
+            r["To"],
+            weight=r["count"]
+        )
+
+    plt.figure(figsize=(14,10))
+
+    pos=nx.spring_layout(
+        G,
+        seed=42
+    )
+
+    nx.draw(
+        G,
+        pos,
+        with_labels=True,
+        node_size=3000
+    )
+
+    plt.title(
+        "User Journey Flow"
+    )
+
+    plt.show()
+
+# -----------------------------
+# 9. SESSION DURATION
+# -----------------------------
+
+if duration_col:
+
+    plt.figure(figsize=(10,6))
+
+    sns.histplot(
+        df[duration_col],
+        bins=20
+    )
+
+    plt.title(
+        "Session Duration"
+    )
+
+    plt.show()
+
+# -----------------------------
+# 10. REPORT
+# -----------------------------
+
+report=f"""
+
+WEBSITE TRAFFIC REPORT
+
+Total Sessions:
+{sessions}
+
+Users:
+{users}
+
+Bounce Rate:
+{round(bounce_rate,2)}%
+
+Average Session Duration:
+{round(avg_duration,2)}
+
+RECOMMENDATIONS FOR ALFIDO TECH
+
+1. Improve landing page speed.
+
+2. Reduce bounce by adding stronger CTA.
+
+3. Optimize referral channels with highest engagement.
+
+4. Simplify navigation for smoother user journeys.
+
+5. Personalize content to increase conversion.
+
+"""
+
+print(report)
+
+with open(
+    "Website_Traffic_Report.txt",
+    "w"
+) as f:
+
+    f.write(report)
+
+print(
+    "\nReport Saved Successfully"
+)
+
+# -----------------------------
+# 11. EXPORT CLEANED DATA
+# -----------------------------
+
+df.to_csv(
+    "cleaned_website_traffic.csv",
+    index=False
+)
+
+print(
+    "\nFiles Generated:"
+)
+
+print(
+"""
+1. Website_Traffic_Analysis.ipynb
+2. Website_Traffic_Report.txt
+3. cleaned_website_traffic.csv
+"""
+)
